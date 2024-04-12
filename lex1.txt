@@ -1,0 +1,424 @@
+line .*\n
+comment1 \/\/.*
+comment2 \/\*(.*\n.*)+\*\/
+whitespace [ \t]
+printStatement printf
+htmlTag <[^>]+>
+email [A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
+ipaddress [0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}
+    Class A: 1 to 126
+    Class B: 128 to 191
+    Class C: 192 to 223
+    Class D: 224 to 239
+    Class E: 240 to 255
+macaddress ([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}
+integer [0-9]+
+float [0-9]+"."[0-9]+
+unsigned_or_long_int [0-9]+[Uu]?[Ll]?
+f_float_l_float [0-9]*\.[0-9]+[FfLl]?
+scientific_float [0-9]+\.[0-9]*[Ee][+\-]?[0-9]+[Ff]?
+hex 0[Xx][0-9A-Fa-f]+
+hex_with_modifiers 0[Xx][0-9A-Fa-f]+[Uu]?[Ll]?
+keyword "auto"|"break"|"case"|"char"|"const"|"continue"|"default"|"do"|"double"|"else"|"enum"|"extern"|"float"|"for"|"goto"|"if"|"int"|"long"|"register"|"return"|"short"|"signed"|"sizeof"|"static"|"struct"|"switch"|"typedef"|"union"|"unsigned"|"void"|"volatile"|"while"
+identifier [a-zA-Z_][a-zA-Z0-9_]*
+single line preprocessor directive "#"[^"\n]*
+multi line preproc dir "#"(.|\n)*"#"
+string \"[^\"\n]*\"
+char \'[^\'\n]*\'
+
+How to run:
+flex ex1.l
+gcc lex.yy.c
+a.exe input.txt
+
+1. Write a lex program to add line numbers to the given file and display the same in the
+output.
+
+%{
+int lineno=0;
+%}
+%option noyywrap
+line .*\n
+%%
+{line} {printf("%d %s",lineno++,yytext);}
+%%
+int main(int argc, char* argv[]){
+    extern FILE* yyin;
+    yyin=fopen(argv[1],"r");
+    yylex();
+    return 0;
+}
+
+2. Write a lex program to extract only comment lines from a C program and display the
+same on output.
+
+%{
+%}
+%option noyywrap
+comment1 \/\/.*
+comment2 \/\*(.*\n.*)+\*\/
+%%
+{comment1} {printf("%s",yytext);}
+{comment2} {printf("%s",yytext);}
+. ;
+%%
+int main(int argc, char* argv[]){
+    extern FILE* yyin;
+    yyin=fopen(argv[1],"r");
+    yylex();
+    return 0;
+}
+
+3. Write a lex program to replace sequence of blank spaces with a single blank space.
+
+%{
+%}
+%option noyywrap
+whitespace [ \t]
+%%
+{whitespace}+ {printf(" ");}
+. {printf("%s", yytext);};
+%%
+int main(int argc, char* argv[]){
+    extern FILE* yyin;
+    yyin=fopen(argv[1],"r");
+    yylex();
+    return 0;
+}
+
+4. Write a lex program to count the occurrence of a word “printf” in a C program.
+
+%{
+int printCount=0;
+%}
+%option noyywrap
+printStatement printf
+%%
+{printStatement} {printCount++;}
+. ;
+%%
+int main(int argc, char* argv[]){
+    extern FILE* yyin;
+    yyin=fopen(argv[1],"r");
+    yylex();
+    printf("\nOccurence of printf word: %d", printCount);
+    return 0;
+}
+
+5. Write a lex program to remove all the occurrences of “printf” from a C program.
+
+%{
+%}
+%option noyywrap
+printStatement printf
+%%
+{printStatement} {fprintf(yyout,"");}
+. {fprintf(yyout,"%s", yytext);};
+%%
+int main(int argc, char* argv[]){
+    extern FILE* yyin;
+    extern FILE* yyout;
+    yyin=fopen(argv[1],"r");
+    yyout=fopen("output.txt","w");
+    yylex();
+    fclose(yyin);
+    fclose(yyout);
+    return 0;
+}
+
+6. Write a lex program to extract all html tags in the given file.
+
+%{
+%}
+%option noyywrap
+htmlTag <[^>]+>
+%%
+{htmlTag} {printf("\n%s", yytext);}
+. ;
+%%
+int main(int argc, char* argv[]){
+    extern FILE* yyin;
+    yyin = fopen(argv[1], "r");
+    yylex();
+    return 0;
+}
+
+7. Write a lex program to remove all html tags in the given file.
+
+%{
+#include <stdio.h>
+%}
+%option noyywrap
+htmlTag <[^>]+>
+%%
+{htmlTag} {fprintf(yyout, " ");}
+. {fprintf(yyout, yytext);};
+%%
+
+int main(int argc, char *argv[]) {
+    extern FILE* yyin;
+    extern FILE* yyout;
+    yyin = fopen(argv[1],"r");
+    yyout = fopen("output.txt", "w");
+    yylex();
+
+    return 0;
+}
+
+8. Write a lex program to check whether the given E-mail id is correct or not.
+
+%{
+%}
+%option noyywrap
+email [A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
+%%
+{email} {printf("\nEmail ID is correct");}
+. {printf("\nEmail ID: %s is incorrect !!", yytext);}
+%%
+int main(){
+    yylex();
+    return 0;
+}
+
+9. Write a lex program to check whether the given IP address is valid or not. Display the
+class to which it belongs.
+IP ADDRESS: It is a 32 bit address often written in 4 groups of 3 decimals each i.e.
+192.168.1.2 (An example of class C IP address)
+
+%{
+#include <stdio.h>
+#include <string.h>
+%}
+%option noyywrap
+%%
+[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}    { 
+    printf("Valid IP Address: %s\n", yytext);
+    char first_octet[4];
+    strncpy(first_octet, yytext, 3);
+    first_octet[3] = '\0';
+    int octet = atoi(first_octet);
+    if (octet >= 1 && octet <= 126) {
+        printf("Class: A\n");
+    } else if (octet >= 128 && octet <= 191) {
+        printf("Class: B\n");
+    } else if (octet >= 192 && octet <= 223) {
+        printf("Class: C\n");
+    } else if (octet >= 224 && octet <= 239) {
+        printf("Class: D\n");
+    } else if (octet >= 240 && octet <= 255) {
+        printf("Class: E\n");
+    }
+}
+[a-zA-Z]+   { printf("Invalid IP Address: %s\n", yytext); }
+.   ;
+%%
+
+int main() {
+    yylex();
+    return 0;
+}
+
+10. Write a lex program to check whether the given MAC address is valid or not. Also
+extract the manufacturer of the device.
+MAC address is assigned to each network interface when it is manufactured. It is a
+12 digit hexadecimal number. The 6 leftmost digits are a prefix that identifies the
+manufacturer of the device. An example of a MAC address: DE-56-0A-DC-E6-88.
+
+%{
+#include <stdio.h>
+#include <string.h>
+%}
+%option noyywrap
+%%
+([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}    { 
+    printf("Valid MAC Address: %s\n", yytext); 
+    char manufacturer[10];
+    strncpy(manufacturer, yytext, 8);
+    printf("\nManufacturer: %s", manufacturer);
+}
+[a-zA-Z0-9]+                           { printf("Invalid MAC Address: %s\n", yytext); }
+.                                      ;
+%%
+
+int main() {
+    yylex();
+    return 0;
+}
+
+11. Write a lex program to count the number of integers and the number of floating point
+numbers in an input file.
+
+%{
+#include <stdio.h>
+int int_count = 0;
+int float_count = 0;
+%}
+%option noyywrap
+%%
+[0-9]+                      { int_count++; }
+[0-9]+"."[0-9]+             { float_count++; }
+.                           ;
+%%
+
+int main(int argc, char *argv[]) {
+    yyin = fopen(argv[1],"r");
+    yylex();
+
+    printf("Number of integers: %d\n", int_count);
+    printf("Number of floats: %d\n", float_count);
+
+    return 0;
+}
+
+12. Write Lex grammar rules to recognize numbers as defined in C: For example, 1234,
+1234L, 1234U, 1234UL, 123.4, 1234E-1, 12.34E+1, 123F, 123.4L, 12E+2F, 12E-2L,
+0X1ABC, 0X1ABCU, 0X1ABCL, 0X1ABCUL (any of the alphabetic characters can
+be lower case as well)
+
+%{
+#include <stdio.h>
+%}
+%option noyywrap
+%%
+[0-9]+                             { printf("Integer: %s\n", yytext); }
+[0-9]+[Uu]?[Ll]?                    { printf("Integer with modifiers: %s\n", yytext); }
+[0-9]*\.[0-9]+[FfLl]?               { printf("Float: %s\n", yytext); }
+[0-9]+\.[0-9]*[Ee][+\-]?[0-9]+[Ff]? { printf("Scientific notation float: %s\n", yytext); }
+0[Xx][0-9A-Fa-f]+                   { printf("Hexadecimal: %s\n", yytext); }
+0[Xx][0-9A-Fa-f]+[Uu]?[Ll]?        { printf("Hexadecimal with modifiers: %s\n", yytext); }
+.                                   ;
+%%
+
+int main(int argc, char * argv[]) {
+    extern FILE* yyin;
+    yyin = fopen(argv[1], "r");
+    yylex();
+    return 0;
+}
+
+13. Write a lex program to recognize identifiers and keywords for C.
+
+%{
+#include <stdio.h>
+#include <string.h>
+%}
+%option noyywrap
+%%
+"auto"|"break"|"case"|"char"|"const"|"continue"|"default"|"do"|"double"|"else"|"enum"|"extern"|"float"|"for"|"goto"|"if"|"int"|"long"|"register"|"return"|"short"|"signed"|"sizeof"|"static"|"struct"|"switch"|"typedef"|"union"|"unsigned"|"void"|"volatile"|"while"   { printf("Keyword: %s\n", yytext); }
+[a-zA-Z_][a-zA-Z0-9_]*                    { printf("Identifier: %s\n", yytext); }
+.                                          ;
+%%
+
+int main(int argc, char * argv[]) {
+    extern FILE* yyin;
+    yyin = fopen(argv[1], "r");
+    yylex();
+    return 0;
+}
+
+14. Write a lex program to recognize various comments:
+a) starting with "#"
+b) Enclosed in "#" and #
+c) enclosed in "/*" and "*/" (nested comments)
+d) starting with "//"
+
+%{
+#include <stdio.h>
+int nested_comment_flag = 0;
+%}
+%option noyywrap
+%%
+"#"[^"\n]*                               { printf("Single-line preprocessor directive: %s\n", yytext); }
+"#"(.|\n)*"#"                            { printf("Multi-line preprocessor directive: %s\n", yytext); }
+"/*"                                     { nested_comment_flag = 1; }
+"/*"(.|\n)*"*/"                          { if (nested_comment_flag) { printf("Nested comment: %s\n", yytext); } }
+"//"(.|\n)*                              { printf("Single-line comment: %s\n", yytext); }
+.                                        ;
+%%
+
+int main(int argc, char * argv[]) {
+    extern FILE* yyin;
+    yyin = fopen(argv[1], "r");
+    yylex();
+    return 0;
+}
+
+15. Write a lex program to read an input program and display the list of strings enclosed in
+double quotes and characters given in single quotes.
+
+%{
+#include <stdio.h>
+%}
+%option noyywrap
+%%
+\"[^\"\n]*\"   { printf("String: %s\n", yytext); }
+\'[^\'\n]*\'   { printf("Character: %s\n", yytext); }
+.              ;
+%%
+
+int main(int argc, char * argv[]) {
+    extern FILE* yyin;
+    yyin = fopen(argv[1], "r");
+    yylex();
+    return 0;
+}
+
+16. Write a lex program to replace every letter with the letter which comes three positions
+after it in alphabetical order, wrapping around at Z.
+
+%{
+#include <stdio.h>
+%}
+%option noyywrap
+%%
+[a-zA-Z]    { 
+                int shifted = (yytext[0] - 'A' + 3) % 26 + 'A'; // Shifts the letter by three positions, wrapping around at Z
+                printf("%c", shifted); 
+            }
+.           { printf("%s", yytext); } // Print other characters as is
+%%
+
+int main(int argc, char * argv[]) {
+    extern FILE* yyin;
+    yyin = fopen(argv[1], "r");
+    yylex();
+    return 0;
+}
+
+17. Write a lex program to find the smallest and longest words from the given text
+
+%{
+#include <stdio.h>
+#include <string.h>
+
+#define MAX_LENGTH 100
+char smallest_word[MAX_LENGTH];
+char longest_word[MAX_LENGTH];
+int smallest_length = MAX_LENGTH;
+int longest_length = 0;
+%}
+%option noyywrap
+%%
+[a-zA-Z]+ {
+    int length = strlen(yytext);
+    if (length < smallest_length) {
+        smallest_length = length;
+        strcpy(smallest_word, yytext);
+    }
+    if (length > longest_length) {
+        longest_length = length;
+        strcpy(longest_word, yytext);
+    }
+}
+. ;
+
+%%
+
+int main(int argc, char * argv[]) {
+    extern FILE* yyin;
+    yyin = fopen(argv[1], "r");
+    yylex();
+    printf("Smallest word: %s\n", smallest_word);
+    printf("Longest word: %s\n", longest_word);
+    return 0;
+}
