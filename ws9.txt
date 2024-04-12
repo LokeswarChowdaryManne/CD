@@ -1,0 +1,1698 @@
+#1)Write a program to construct SLR parsing table by finding LR(0) items from the given grammar using closure and goto functions.
+
+import copy
+
+def grammarAugmentation(rules, nonterm_userdef, start_symbol):
+    newRules = []
+    newChar = start_symbol + "'"
+    while newChar in nonterm_userdef:
+        newChar += "'"
+
+    newRules.append([newChar, ['.', start_symbol]])
+
+    for rule in rules:
+        k = rule.split("->")
+        lhs = k[0].strip()
+        rhs = k[1].strip()
+        multirhs = rhs.split('|')
+
+        for rhs1 in multirhs:
+            rhs1 = rhs1.strip().split()
+            rhs1.insert(0, '.')
+            newRules.append([lhs, rhs1])
+    return newRules
+
+def findClosure(input_state, dotSymbol):
+    global start_symbol, separatedRulesList, statesDict
+
+    closureSet = []
+
+    if dotSymbol == start_symbol:
+        for rule in separatedRulesList:
+            if rule[0] == dotSymbol:
+                closureSet.append(rule)
+    else:
+        closureSet = input_state
+
+    prevLen = -1
+
+    while prevLen != len(closureSet):
+        prevLen = len(closureSet)
+
+        tempClosureSet = []
+
+        for rule in closureSet:
+            indexOfDot = rule[1].index('.')
+            if rule[1][-1] != '.':
+                dotPointsHere = rule[1][indexOfDot + 1]
+                for in_rule in separatedRulesList:
+                    if dotPointsHere == in_rule[0] and in_rule not in tempClosureSet:
+                        tempClosureSet.append(in_rule)
+
+        for rule in tempClosureSet:
+            if rule not in closureSet:
+                closureSet.append(rule)
+    return closureSet
+
+def compute_GOTO(state):
+    global statesDict, stateCount
+
+    generateStatesFor = []
+    for rule in statesDict[state]:
+        if rule[1][-1] != '.':
+            indexOfDot = rule[1].index('.')
+            dotPointsHere = rule[1][indexOfDot + 1]
+            if dotPointsHere not in generateStatesFor:
+                generateStatesFor.append(dotPointsHere)
+
+    if generateStatesFor:
+        for symbol in generateStatesFor:
+            GOTO(state, symbol)
+    return
+
+def GOTO(state, charNextToDot):
+    global statesDict, stateCount, stateMap
+
+    newState = []
+    for rule in statesDict[state]:
+        indexOfDot = rule[1].index('.')
+        if rule[1][-1] != '.':
+            if rule[1][indexOfDot + 1] == charNextToDot:
+                shiftedRule = copy.deepcopy(rule)
+                shiftedRule[1][indexOfDot] = shiftedRule[1][indexOfDot + 1]
+                shiftedRule[1][indexOfDot + 1] = '.'
+                newState.append(shiftedRule)
+
+    addClosureRules = []
+    for rule in newState:
+        indexDot = rule[1].index('.')
+
+        if rule[1][-1] != '.':
+            closureRes = findClosure(newState, rule[1][indexDot + 1])
+            for rule in closureRes:
+                if rule not in addClosureRules and rule not in newState:
+                    addClosureRules.append(rule)
+
+    for rule in addClosureRules:
+        newState.append(rule)
+
+    stateExists = -1
+    for state_num in statesDict:
+        if statesDict[state_num] == newState:
+            stateExists = state_num
+            break
+
+    if stateExists == -1:
+        stateCount += 1
+        statesDict[stateCount] = newState
+        stateMap[(state, charNextToDot)] = stateCount
+    else:
+        stateMap[(state, charNextToDot)] = stateExists
+    return
+
+def generateStates(statesDict):
+    prev_len = -1
+    called_GOTO_on = []
+
+    while len(statesDict) != prev_len:
+        prev_len = len(statesDict)
+        keys = list(statesDict.keys())
+
+        for key in keys:
+            if key not in called_GOTO_on:
+                called_GOTO_on.append(key)
+                compute_GOTO(key)
+    return
+
+def first(rule):
+    global rules, nonterm_userdef, term_userdef, diction, firsts
+
+    if rule and rule[0] in term_userdef:
+        return rule[0]
+    elif rule and rule[0] == '#':
+        return '#'
+
+    if rule:
+        if rule[0] in diction:
+            fres = []
+            rhs_rules = diction[rule[0]]
+
+            for itr in rhs_rules:
+                indivRes = first(itr)
+                if isinstance(indivRes, list):
+                    fres.extend(indivRes)
+                else:
+                    fres.append(indivRes)
+
+            if '#' not in fres:
+                return fres
+            else:
+                fres.remove('#')
+                if len(rule) > 1:
+                    ansNew = first(rule[1:])
+                    if ansNew is not None:
+                        if isinstance(ansNew, list):
+                            fres.extend(ansNew)
+                        else:
+                            fres.append(ansNew)
+                    else:
+                        fres
+                fres.append('#')
+                return fres
+
+def follow(nt):
+    global start_symbol, rules, nonterm_userdef, term_userdef, diction, firsts, follows
+
+    solset = set()
+    if nt == start_symbol:
+        solset.add('$')
+
+    for curNT in diction:
+        rhs = diction[curNT]
+
+        for subrule in rhs:
+            if nt in subrule:
+                while nt in subrule:
+                    index_nt = subrule.index(nt)
+                    subrule = subrule[index_nt + 1:]
+
+                    if subrule:
+                        res = first(subrule)
+                        if '#' in res:
+                            res.remove('#')
+                            ansNew = follow(curNT)
+                            if ansNew is not None:
+                                if isinstance(ansNew, list):
+                                    res.extend(ansNew)
+                                else:
+                                    res.append(ansNew)
+                            res
+                    else:
+                        if nt != curNT:
+                            res = follow(curNT)
+
+                    if res is not None:
+                        if isinstance(res, list):
+                            solset.update(res)
+                        else:
+                            solset.add(res)
+    return list(solset)
+
+def createParseTable(statesDict, stateMap, T, NT):
+    global separatedRulesList, diction
+
+    rows = list(statesDict.keys())
+    cols = T + ['$'] + NT
+
+    Table = []
+    for _ in range(len(rows)):
+        Table.append([''] * len(cols))
+
+    for entry in stateMap:
+        state = entry[0]
+        symbol = entry[1]
+
+        row_index = rows.index(state)
+        col_index = cols.index(symbol)
+        if symbol in NT:
+            Table[row_index][col_index] += str(stateMap[entry]) + ' '
+        elif symbol in T:
+            Table[row_index][col_index] += 'S' + str(stateMap[entry]) + ' '
+
+    numbered = {}
+    key_count = 0
+    for rule in separatedRulesList:
+        tempRule = copy.deepcopy(rule)
+        tempRule[1].remove('.')
+        numbered[key_count] = tempRule
+        key_count += 1
+
+    addedR = separatedRulesList[0][0] + " -> " + separatedRulesList[0][1][1]
+    rules.insert(0, addedR)
+    for rule in rules:
+        k = rule.split("->")
+        lhs = k[0].strip()
+        rhs = k[1].strip()
+        multirhs = rhs.split('|')
+
+        for i in range(len(multirhs)):
+            multirhs[i] = multirhs[i].strip().split()
+        diction[lhs] = multirhs
+
+    for stateno in statesDict:
+        for rule in statesDict[stateno]:
+            if rule[1][-1] == '.':
+                temp2 = copy.deepcopy(rule)
+                temp2[1].remove('.')
+                for key in numbered:
+                    if numbered[key] == temp2:
+                        follow_result = follow(rule[0])
+                        for col in follow_result:
+                            col_index = cols.index(col)
+                            if key == 0:
+                                Table[stateno][col_index] = "Accept"
+                            else:
+                                Table[stateno][col_index] += 'R' + str(key) + ' '
+
+    print("\nSLR(1) parsing table:")
+    print(" ", end=" ")
+    print(" ".join(cols))
+
+    for index, row in enumerate(Table):
+        print("I" + str(index) + ":", end=" ")
+        print(" ".join(row))
+
+def printResult(rules):
+    for rule in rules:
+        print(rule[0] + " -> " + " ".join(rule[1]))
+
+def printAllGOTO(diction):
+    for itr in diction:
+        print("GOTO(I" + str(itr[0]) + ", " + itr[1] + ") = I" + str(stateMap[itr]))
+
+rules = ["E -> E + T | T",
+        "T -> T * F | F",
+        "F -> ( E ) | id"
+        ]
+
+nonterm_userdef = ['E', 'T', 'F']
+term_userdef = ['id', '+', '*', '(', ')']
+start_symbol = nonterm_userdef[0]
+
+print("\nOriginal grammar input:")
+for rule in rules:
+    print(rule)
+
+print("\nGrammar after Augmentation:")
+separatedRulesList = grammarAugmentation(rules, nonterm_userdef, start_symbol)
+printResult(separatedRulesList)
+
+start_symbol = separatedRulesList[0][0]
+print("\nCalculated closure: I0")
+I0 = findClosure(0, start_symbol)
+printResult(I0)
+
+statesDict = {}
+stateMap = {}
+statesDict[0] = I0
+stateCount = 0
+
+generateStates(statesDict)
+
+print("\nStates Generated:")
+for state in statesDict:
+    print("State = I" + str(state))
+    printResult(statesDict[state])
+    print("")
+
+print("Result of GOTO computation:")
+printAllGOTO(stateMap)
+
+diction = {}
+
+createParseTable(statesDict, stateMap, term_userdef, nonterm_userdef)
+
+########################################################################################
+
+#2)Write a program to construct SLR parsing table by finding LR(0) items from the given grammar using closure and goto functions.(another Code)
+
+
+'''
+    To-Do:
+    NOTE: If a table has 2 entry, the latest entry will be filled replacing the 
+    previously stored entry as conflicts are not handled
+    NOTE: Check whether parsing works correctly
+'''
+
+from collections import deque
+
+def stateExists(states_list, item_set):
+    for state in states_list:
+        if state.item_set==item_set:
+            return True
+    return False
+        
+def findLabel(states_list, item_set):
+    for state in states_list:
+        if state.item_set==item_set:
+            return state.label
+
+class SLR_state:
+    def __init__(self, label, item_set):
+        self.label = label
+        self.item_set = item_set    
+
+    def __eq__(self, other):
+        return set(self.item_set) == other
+
+class LR0_item:
+    def __init__(self, lhs, rhs):
+        self.lhs = lhs
+        self.rhs = rhs
+
+    def __eq__(self, other):
+        return self.lhs == other.lhs and self.rhs == other.rhs
+    
+    def __hash__(self):
+        return hash((self.lhs, self.rhs))
+    
+class Grammar:
+    def __init__(self, non_terminals, terminals, start_symbol, productions, aug):
+        self.non_terminals = non_terminals
+        self.terminals = terminals
+        self.start_symbol = start_symbol
+        self.productions = productions
+        self.aug_start_symbol = aug
+        self.first_dict = dict()
+        self.follow_dict = dict()
+
+    # NOTE: Find first from last level production to first level production (for ease)
+    def findFirst(self, symbol):
+        if symbol in self.terminals:
+            return {symbol}
+        else:
+            res = set()
+
+            for production in self.productions[symbol]:
+                # If first character of a production is terminal, then nothing in that production can contribute to FIRST
+                if production[0] in self.terminals:
+                    res.add(production[0])
+
+                else:
+                    if symbol==production[0] and symbol not in self.first_dict.keys():
+                        continue
+                    index=0
+                    # Until the first occuring NT has '?' in it's production, add the FIRST of NT to res
+                    while index<len(production) and production[index] in self.non_terminals:
+                        if '?' in self.first_dict[production[index]]:
+                            res.add(self.first_dict[production[index]])
+                            index += 1
+
+                            # If an NT has epsilon in its first and is followed by a terminal, then add that terminal and stop
+                            if production[index] in self.non_terminals:
+                                res.add(production[index])
+                                break
+                        else:
+                            res.update(self.first_dict[production[index]])
+                            break
+
+                    if index<len(production) and production[index] in self.terminals:
+                        res.update(self.first_dict[production[index]])
+            
+            #self.first_dict[symbol] = res
+            return res
+
+    # NOTE: Find follow only after FIRST has been found for all NT
+    def findFollow(self, non_terminal):
+        res = set()
+
+        if non_terminal == self.start_symbol:
+            res.add('$')
+
+        for nt in self.productions.keys():
+            for production in self.productions[nt]:
+                if non_terminal in production:
+                    # Finding all positions where non_terminal occurs in RHS
+                    positions = [i for i,c in enumerate(production) if c==non_terminal]
+
+                    # non_terminal followed by nothing
+                    if positions==[len(production)-1]:
+                        # Checking whether LHS and input symbol to FOLLOW function() is same
+                        if non_terminal == nt:
+                            return res
+                        else:
+                            res.update(self.follow_dict[nt])
+
+                    for pos in positions:
+                        index = pos + 1
+                        
+                        while index<len(production):
+                            # If NT followed by terminal
+                            if production[index] in self.terminals:
+                                res.add(production[index])
+                                break
+                            # NT followed by another NT
+                            elif production[index] in self.non_terminals:
+                                first_of_next_nt = self.first_dict[production[index]]
+                                res.update({elem for elem in first_of_next_nt if elem != '?'})
+                                
+                                if '?' in first_of_next_nt:
+                                    index += 1
+                                else:
+                                    break
+                        
+                        if index==len(production):
+                            res.update(self.follow_dict[nt])
+
+        #self.follow_dict[non_terminal] = res
+        return res
+    
+
+    def findClosure(self, items_set: set):
+        old = set()
+        for item in items_set:
+            old.add(LR0_item(item.lhs, item.rhs))
+        res = set()
+
+        # Every item in I is in CLOSURE(I)
+        for item in old:
+            res.add(item)
+        
+        while len(old):
+            item = old.pop()
+            if '.' in item.rhs:
+                dot_index = item.rhs.index('.')
+                if dot_index + 1 < len(item.rhs) and item.rhs[dot_index + 1] in self.productions.keys():
+                    for prod in self.productions[item.rhs[dot_index + 1]]:
+                        new_item = LR0_item(item.rhs[dot_index + 1], '.'+prod)
+                        res.add(new_item)
+
+                        if prod[0]==item.rhs[dot_index + 1]:
+                            continue
+                        else:
+                            old.add(new_item)
+                        
+        return res
+
+    def findGoto(self, kernel):
+        kernel_copy = set()
+        for item in kernel:
+            kernel_copy.add(LR0_item(item.lhs, item.rhs))
+        dot_moved_kernel = set()
+
+        for item in kernel_copy:
+            dot_index = item.rhs.index('.')
+            # After moving, dot is at last
+            if dot_index==len(item.rhs)-2:
+                item.rhs = item.rhs[:dot_index] + item.rhs[dot_index+1] + '.'
+            # After moving, dot is in between
+            else:
+                item.rhs = item.rhs[:dot_index] + item.rhs[dot_index+1] + '.' + item.rhs[dot_index+2:]
+            dot_moved_kernel.add(item)
+
+        return self.findClosure(dot_moved_kernel)
+
+
+start_sym = input('Enter start symbol: ')
+non_terms = list(input('Enter space separated NT: ').split())
+terms = input('Enter space-separated terminals (use ? for epsilon): ').split()
+
+prods = {}
+
+print('Enter space-separated RHS of each NT')
+for nt in non_terms:
+    prods[nt] = list(input(nt + '-> ').split())
+
+# Augmented grammar. Assumption: Augmented NT is 2 after the NT
+augmented_start_sym = chr(ord(start_sym) + 2)
+G = Grammar(non_terms, terms, start_sym, prods, augmented_start_sym)
+
+# Finding FIRST for terminals first
+for terminal in G.terminals:
+    res = G.findFirst(terminal)
+    G.first_dict[terminal] = res # Storing back to FIRST dictionary for future reference by other FIRST calculations
+
+# Finding FIRST for NT in reverse
+for nt in reversed(G.non_terminals):
+    res = G.findFirst(nt)
+    G.first_dict[nt] = res
+
+# Finding FOLLOW for NT in forward
+for nt in G.non_terminals:
+    res = G.findFollow(nt)
+    G.follow_dict[nt] = res
+
+print('FIRST table :-')
+print(G.first_dict)
+
+print('FOLLOW table :-')
+print(G.follow_dict)
+
+
+G.non_terminals.append(augmented_start_sym)
+G.first_dict[augmented_start_sym] = set(G.first_dict[G.start_symbol])
+G.follow_dict[augmented_start_sym] = set(G.follow_dict[G.start_symbol])
+G.productions[augmented_start_sym] = start_sym
+
+# Prereqs for states processing
+states_queue = deque()
+states_list = []
+slr_table = {}
+goto_table = {}
+
+# State construction starts here
+initial_item = LR0_item(G.aug_start_symbol, '.' + G.start_symbol)
+initial_set = set()
+initial_set.add(initial_item)
+
+initial_closure = G.findClosure(initial_set)
+initial_state = SLR_state('0', initial_closure)
+states_queue.append(initial_state)
+states_list.append(initial_state)
+
+while states_queue:
+    state = states_queue.popleft()
+
+    # SLR table filling
+    for item in state.item_set:
+        if item.rhs[-1]=='.':
+            # SLR table filling rule 3
+            if item.lhs==G.aug_start_symbol and item.rhs==G.start_symbol + '.':
+                slr_table[(state.label, '$')] = 'Accept'
+            # SLR table filling rule 2
+            else:
+                for term in G.follow_dict[item.lhs]:
+                    slr_table[(state.label, term)] = 'Reduce ' + item.lhs + ' -> ' + item.rhs[:-1]
+
+    # Finding NT GOTOs
+    for nt in G.non_terminals:
+        kernel = set()
+        for item in state.item_set:
+            dot_index = item.rhs.index('.')
+            if dot_index+1<len(item.rhs) and item.rhs[dot_index+1]==nt:
+                kernel.add(item)
+
+        if not len(kernel):
+            continue
+        goto = G.findGoto(kernel)
+
+        next_label = ''
+
+        if stateExists(states_list, goto):
+            next_label = findLabel(states_list, goto)
+        else:
+            next_label = str(int(states_list[-1].label) + 1)
+            new_state = SLR_state(next_label, goto)
+            states_list.append(new_state)
+            states_queue.append(new_state)
+
+        goto_table[(state.label, nt)] = next_label
+
+        # SLR table filling rule 4
+        slr_table[(state.label, nt)] = next_label
+
+    # Finding terminal GOTOs
+    for t in G.terminals:
+        kernel = set()
+        for item in state.item_set:
+            dot_index = item.rhs.index('.')
+            if dot_index+1<len(item.rhs) and item.rhs[dot_index+1]==t:
+                kernel.add(item)
+
+        if not len(kernel):
+            continue
+        goto = G.findGoto(kernel)
+
+        next_label = ''
+
+        if stateExists(states_list, goto):
+            next_label = findLabel(states_list, goto)
+        else:
+            next_label = str(int(states_list[-1].label) + 1)
+            new_state = SLR_state(next_label, goto)
+            states_list.append(new_state)
+            states_queue.append(new_state)
+
+        goto_table[(state.label, t)] = next_label
+
+        # SLR table filling rule 1
+        slr_table[(state.label, t)] = 'S ' + next_label
+
+grammar_symbols = [term for term in G.terminals]
+grammar_symbols.extend(G.non_terminals)
+grammar_symbols.remove(G.aug_start_symbol)
+print('Grammar symbols: ', grammar_symbols)
+
+# Filling invalid entries in slr table
+for state in range(int(states_list[-1].label)+1):
+    for symbol in grammar_symbols:
+        if (str(state), symbol) not in slr_table.keys():
+            slr_table[(str(state), symbol)] = '-'
+
+# Printing the table
+print('SLR parser table :-')
+row_headers = [str(key) for key in range(int(states_list[-1].label)+1)]
+col_headers = grammar_symbols
+
+print('\t' + '\t'.join(col_headers))
+for row_header in row_headers:
+    print(row_header, end='\t')
+    for col_header in col_headers:
+        cell_value = slr_table.get((str(row_header), col_header), '')
+        print(cell_value, end='\t')
+    print()
+
+# Parsing the input string
+stack = '$' + str(0)
+input_str = input('Enter input string to parse: ')
+str_index = 0
+
+while True:
+    # Accept case
+    if input_str[str_index]=='$' and stack[-1]=='1':
+        print('Stack: ', stack, end='\t')
+        print('Buffer: ', input_str[str_index:], end='\t')
+        print('ACCEPT')
+        break
+
+    # Table lookup case
+    if stack[-1] in row_headers and input_str[str_index] in G.terminals:
+        print('Stack: ', stack, end='\t')
+        print('Buffer: ', input_str[str_index:], end='\t')
+
+        if slr_table[(stack[-1], input_str[str_index])] == '-':
+            print('ERROR !')
+            break
+
+        # SHIFT case
+        elif slr_table[(stack[-1], input_str[str_index])].split()[0] == 'S':
+            print(slr_table[(stack[-1], input_str[str_index])])
+            next_state = slr_table[(stack[-1], input_str[str_index])].split()[1]
+            stack += input_str[str_index]
+            stack += next_state
+            str_index += 1
+
+        # REDUCE case
+        else:
+            # Matching stack content with production rhs and replacing
+            print(slr_table[(stack[-1], input_str[str_index])])
+            # Leaving the last character 
+            next_lhs = slr_table[(stack[-1], input_str[str_index])].split()[1]
+            rhs_len = len(slr_table[(stack[-1], input_str[str_index])].split()[3])
+            stack = stack[:-1]
+            stack = stack[:-((2*rhs_len) - 1)]
+            stack += next_lhs
+
+    # Once reduction is done, check for pushing new state number to stack
+    elif stack[-1] in grammar_symbols and stack[-2] in row_headers:
+        print('Stack: ', stack, end='\t')
+        print('Buffer: ', input_str[str_index:], end='\t')
+        print(slr_table[(stack[-2], stack[-1])])
+
+        stack += slr_table[(stack[-2], stack[-1])]
+
+    else:
+        print('ERROR !')
+        break
+
+
+########################################################################################
+
+#Write a program to implement SLR parsing technique.
+
+def parse(T : dict, inp : str) -> list :
+
+    inp += '$'
+    ans, stackStr, indx = [], '0', 0
+
+    while True :
+
+        if inp[indx] not in T[int(stackStr[-1])] :
+            return ans
+
+        ops = T[int(stackStr[-1])][inp[indx]]
+        ans += [[stackStr, ops, inp[indx :]]]
+
+        if ops == 'ACCEPT' :
+            return ans
+
+        if ops[0] == 'S' :
+            stackStr += inp[indx]
+            stackStr += ops[-1]
+            indx += 1
+        else :
+            stackStr = stackStr[:-1]
+            prod = ops.split('->')
+            
+            if len(prod[-1]) != 1 :
+                string = stackStr[-5 : ]
+
+                if string[0] == prod[-1][0] and string[2] == prod[-1][1] and string[4] == prod[-1][2] :
+                    stackStr = stackStr[ : -5]
+
+                else :
+                    return ans
+            else :
+                stackStr = stackStr[ : -1]
+
+            stackStr += prod[0]
+            stackStr += T[int(stackStr[-2])][stackStr[-1]]
+          
+def main() :
+    
+    G = {'E' : ['E+T', 'T'], 'T' : ['T*F', 'F'], 'F' : ['i']}
+    table = {
+                0 : {'i' : 'S4', 'E' : '1', 'T' : '2', 'F' : '3'},
+                1 : {'+' : 'S5', '$' : 'ACCEPT'},
+                2 : {'+' : 'E->T', '*' : 'S6', '$' : 'E->T'},
+                3 : {'+' : 'T->F', '*' : 'T->F', '$' : 'T->F'},
+                4 : {'+' : 'F->i', '*' : 'F->i', '$' : 'F->i'},
+                5 : {'i' : 'S4', 'T' : '7', 'F' : '3'},
+                6 : {'i' : 'S4', 'F' : '8'},
+                7 : {'+' : 'E->E+T', '*' : 'S6', '$' : 'E->E+T'},
+                8 : {'+' : 'T->T*F', '*' : 'T->T*F', '$' : 'T->T*F'}
+            }
+
+    string = 'i+i+i'
+    res = parse(table, string)
+
+    if res[-1][1] == 'ACCEPT' :
+        print('\nGiven input is valid.\n')
+        for row in res :
+            print(row)
+        print()
+    else :
+        print('\nGiven input is invalid.\n')
+        for row in res :
+            print(row)
+        print()
+
+if __name__ == '__main__' :
+    main()
+
+
+#####################################################################################
+
+#1)Write a program to generate three address code (Quadruples and triples representation) for the given arithmetic expression
+
+def parse_expression(exp):
+
+    asg = exp[0]
+    stack = list(exp[2:])
+    int_code = {}
+    count = 0
+    
+    for i in range(len(exp)):
+        if exp[i] == ')':
+            s = ''
+            while stack[-1] != '(':
+                s = stack.pop() + s
+            stack.pop()  
+
+            count += 1
+            temp_var = f'T{count}'
+            int_code[temp_var] = s
+            stack.append(temp_var)
+        else:
+            stack.append(exp[i])
+    
+    int_code[asg] = f'T{count}'
+    return int_code
+
+def generate_quadruples(int_code):
+    
+    operators = ['*', '+', '-', '/']
+    quadruples = []
+    
+    for k, v in int_code.items():
+        if v[0] == '-':
+            quadruples.append((v[0], v[1:], '-', k))
+        else:
+            flag = 0
+            for i in operators:
+                if i in v:
+                    flag = 1
+                    ind = v.index(i)
+                    quadruples.append((v[ind], v[0:ind], v[ind + 1:], k))
+                    break
+            if flag == 0:
+                quadruples.append(('=', v, '-', k))
+    
+    
+    for quadruple in quadruples:
+        print(quadruple)
+
+def generate_triples(int_code):
+    
+    operators = ['*', '+', '-', '/']
+    triples = []
+    
+    for k, v in int_code.items():
+        if v[0] == '-':
+            triples.append((v[0], v[1:], '-'))
+        else:
+            flag = 0
+            for i in operators:
+                if i in v:
+                    flag = 1
+                    ind = v.index(i)
+                    triples.append((v[ind], v[0:ind], v[ind + 1:]))
+                    break
+            if flag == 0:
+                triples.append(('=', k, v))
+                
+    for triple in triples:
+        print(triple)
+
+
+def main():
+    exp = input("\nEnter arithmetic expression:  ")
+    print("\nARITHMETIC EXPRESSION: ", exp)
+    
+    int_code = parse_expression(exp)
+    choice = int(input("\nChoose: 1 >> QUADRUPLES\nChoose: 2 >> TRIPLES\n\n>>> "))
+    
+    if choice == 1:
+        print("\nQUADRUPLES\n")
+        generate_quadruples(int_code)
+    elif choice == 2:
+        print("\nTRIPLES\n")
+        generate_triples(int_code)
+    else:
+        print("\nInvalid choice")
+
+if __name__ == "__main__":
+    main()
+
+#####################################################################################
+
+#2)Write a program to generate three address code (Quadruples and triples representation) for the given arithmetic expression
+
+from prettytable import PrettyTable
+
+exp = input("Enter arithmetic expression with appropriate brackets: ")
+print("\nARITHMETIC EXPRESSION: ", exp)
+
+operators=['*','+','-','/']
+asg = exp[0]
+stack = []
+
+
+#print("ASG: ", asg)
+#print("EXP: ", exp)
+
+int_code = {}
+count = 0
+
+for i in range(len(exp)):
+    if exp[i] == ')':
+        s = ''
+        while stack[-1] != '(':
+            s = stack.pop()+s
+        stack.pop()  # Remove the '('
+
+        count += 1
+        temp_var = 'T' + str(count)
+        int_code[temp_var] = s
+        stack.append(temp_var)
+    else:
+        stack.append(exp[i])
+
+int_code[asg]='T'+str(count)
+
+print("\n\nFinal Three Address Code:\n")
+for key, value in int_code.items():
+    print(key, '=', value)
+
+op=[]
+arg1=[]
+arg2=[]
+res=[]
+print("\n\nQUADRAPLES\n")
+for k,v in int_code.items():
+
+  if v[0]=='-':
+    op.append(v[0])
+    arg1.append(v[1:])
+    arg2.append('-')
+    res.append(k)
+  else:
+    flag=0
+    for i in operators:
+      if i in v:
+        flag=1
+        ind=v.index(i)
+        op.append(v[ind])
+        arg1.append(v[0:ind])
+        arg2.append(v[ind+1:])
+        res.append(k)
+        break
+    if flag==0:
+      op.append('=')
+      arg1.append(v)
+      arg2.append('-')
+      res.append(k)
+
+table=PrettyTable(['OPERATOR','ARG1','ARG2','RESULT'])
+
+for i in range(len(op)):
+  table.add_row([''.join(op[i]),''.join(arg1[i]),''.join(arg2[i]),''.join(res[i])])
+
+print(table)
+
+#A=((A+(B*C))-D)
+#A=((-B)+(C*D))
+
+
+
+# Three address code - TRIPLES
+
+from prettytable import PrettyTable
+
+exp = input("Enter arithmetic expression with appropriate brackets: ")
+print("\nARITHMETIC EXPRESSION: ", exp)
+
+operators=['*','+','-','/']
+asg = exp[0]
+stack = []
+
+#print("ASG: ", asg)
+#print("EXP: ", exp)
+
+int_code = {}
+count = 0
+
+for i in range(len(exp)):
+    if exp[i] == ')':
+        s = ''
+        while stack[-1] != '(':
+            s = stack.pop()+s
+        stack.pop()  # To Remove '('
+
+        count += 1
+        temp_var ='('+ str(count)+')'
+        int_code[temp_var] = s
+        stack.append(temp_var)
+    else:
+        stack.append(exp[i])
+
+int_code[asg]='('+ str(count)+')'
+
+print("\n\nFinal Three Address Code:\n")
+for key, value in int_code.items():
+    print(key, '=', value)
+
+op=[]
+arg1=[]
+arg2=[]
+
+print("\nTRIPLES\n")
+for k,v in int_code.items():
+
+  if v[0]=='-':
+    op.append(v[0])
+    arg1.append(v[1:])
+    arg2.append('-')
+  else:
+    flag=0
+    for i in operators:
+      if i in v:
+        flag=1
+        ind=v.index(i)
+        op.append(v[ind])
+        arg1.append(v[0:ind])
+        arg2.append(v[ind+1:])
+        break
+    if flag==0:
+      op.append('=')
+      arg1.append(k)
+      arg2.append(v)
+
+table=PrettyTable(['OPERATOR','ARG1','ARG2'])
+
+for i in range(len(op)):
+  table.add_row([''.join(op[i]),''.join(arg1[i]),''.join(arg2[i])])
+
+print(table)
+
+
+#A=((A+(B*C))-D)
+#A=((-B)+(C*D))
+
+#######################################################################################
+
+#1)Write a program to associate postfix notation of the given arithmetic expression with every node in the parse tree.
+
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.left = None
+        self.right = None
+        self.val_left = None
+        self.val_right = None
+
+def precedence(operator):
+    if operator in {'*', '/'}:
+        return 2
+    elif operator in {'+', '-'}:
+        return 1
+    else:
+        return -1
+
+def infix_to_postfix(expression):
+    result = []
+    stack = []
+    
+    for char in expression:
+        if char.isalnum():
+            result.append(char)
+        elif char == '(':
+            stack.append(char)
+        elif char == ')':
+            while stack and stack[-1] != '(':
+                result.append(stack.pop())
+            stack.pop()
+        else:
+            while stack and precedence(char) <= precedence(stack[-1]):
+                result.append(stack.pop())
+            stack.append(char)
+    
+    while stack:
+        result.append(stack.pop())
+    
+    return ''.join(result)
+
+def construct_parse_tree(postfix):
+    stack = []
+    operators = {'+', '-', '*', '/'}
+
+    for char in postfix:
+        if char not in operators:
+            node = Node(char)
+            stack.append(node)
+        else:
+            right_node = stack.pop()
+            left_node = stack.pop()
+            node = Node(char)
+            node.left = left_node
+            node.right = right_node
+            node.val_left = left_node.data
+            node.val_right = right_node.data
+            stack.append(node)
+    
+    return stack.pop()
+
+def print_parse_tree(node, level=0):
+    if node is not None:
+        print(f"{' ' * level * 2}Node: {node.data}, left child: {node.val_left}, right child: {node.val_right}")
+        print_parse_tree(node.left, level + 1)
+        print_parse_tree(node.right, level + 1)
+
+def main():
+    exp = input("Enter an arithmetic expression: ")
+
+    postfix_exp = infix_to_postfix(exp)
+    print(f"Postfix notation: {postfix_exp}")
+
+    parse_tree_root = construct_parse_tree(postfix_exp)
+
+    print("\nParse Tree:")
+    print_parse_tree(parse_tree_root)
+
+if __name__ == "__main__":
+    main()
+
+#######################################################################################
+
+#2)Write a program to associate postfix notation of the given arithmetic expression with every node in the parse tree.
+
+from collections import *
+
+class Node:
+  def __init__(self, value=None, left=None, right=None, next=None, postfix=None):
+    self.value=value
+    self.left=left
+    self.right=right
+    self.next=next
+    self.postfix=postfix
+
+
+class Stack:
+  def __init__(self):
+    self.top=None
+
+  def push(self,new_node):
+    if(not self.top): #stack is empty
+      self.top=new_node
+
+    else:
+      new_node.next=self.top
+      self.top=new_node
+
+  def pop(self):
+    if(not self.top):
+      print("Stack is empty!")
+
+    else:
+      popped=self.top
+      self.top=self.top.next
+      return popped
+
+class Tree:
+  def inorder(self,p):
+    if(not p):
+      return
+
+    self.inorder(p.left)
+    print(p.value,end="\t")
+    print(p.postfix)
+    self.inorder(p.right)
+
+
+precedence={'*':2,"/":2,"+":1,"-":1}
+
+expr="((a+b)*(a-b))"
+
+print("Input expression:", expr)
+print("\n")
+
+stack=[]
+postfix=[]
+
+#infix to postfix
+
+for i in range(len(expr)):
+
+  if(expr[i]=='('):
+    stack.append(expr[i])
+
+  if(expr[i].isalpha()):
+    postfix.append(expr[i])
+
+  elif(expr[i] in list(precedence.keys()) and stack[-1]=='('):
+    stack.append(expr[i])
+
+  elif (expr[i] in list(precedence.keys()) and stack[-1] in list(precedence.keys())):
+    if(precedence[expr[i]] > precedence[stack[-1]]):
+      stack.append(expr[i])
+
+    else:
+      while (len(stack) and stack[-1]!='(' and stack[-1]!=')' and precedence[stack[-1]]>= precedence[expr[i]] ):
+        postfix+=(stack.pop())
+
+      stack.append(expr[i])
+
+  elif(expr[i]==')'):
+    if(len(stack)!=0):
+      while(True):
+        elt=stack.pop()
+        if(elt=='('):
+          break
+        postfix+=elt
+
+print("Postfix expression:", postfix)
+
+
+#postfix to syntax tree
+
+operators=list(precedence.keys())
+tree_stack=Stack()
+
+syntax_tree=Tree()
+
+for c in postfix:
+
+  if(c in operators):
+    op2=tree_stack.pop()
+    op1=tree_stack.pop()
+
+    op_node=Node()
+    op_node.value=c
+    op_node.postfix=op1.postfix+op2.postfix+c
+    op_node.left=op1
+    op_node.right=op2
+    tree_stack.push(op_node)
+
+  if (c.isalpha()):
+    new_node=Node()
+    new_node.value=c
+    new_node.postfix=c
+    tree_stack.push(new_node)
+
+root=tree_stack.pop()
+print("\nINORDER TRAVERSAL")
+syntax_tree.inorder(root)
+
+
+############################################################################
+
+#1)Write a program to associate three address code of arithmetic expression (integer data types and mixed data types) with each node in the parse tree.
+
+class TreeNode:
+    def __init__(self, value):
+        self.value = value
+        self.children = []
+
+    def add_child(self, child):
+        self.children.append(child)
+
+    def __str__(self):
+        return str(self.value)
+
+
+def generate_code(expression):
+    global temp_count
+    code = []
+    stack = []
+    tokens = expression.split()
+    for token in tokens:
+        if token.isalnum():
+            stack.append(token)
+        else:
+            op2 = stack.pop()
+            op1 = stack.pop()
+            temp = "T"+str(temp_count)
+            temp_count += 1
+            code.append((token, op1, op2, temp))
+            stack.append(temp)
+    return code
+
+
+
+
+
+def construct_tree(code):
+    stack = []
+    for op, op1, op2, temp in code:
+        node = TreeNode((op, temp))
+        if op1.isdigit() or op1.isalpha():
+            node.add_child(TreeNode(op1))
+        else:
+            node.add_child(stack.pop())
+
+        if op2.isdigit() or op2.isalpha():
+            node.add_child(TreeNode(op2))
+        else:
+            node.add_child(stack.pop())
+        stack.append(node)
+    return stack.pop()
+
+
+def print_tree(node, level=0):
+    if node:
+        print("  " * level + str(node))
+        for child in node.children:
+            print_tree(child, level + 1)
+
+
+def infix_to_postfix(expression):
+    precedence = {'+': 1, '-': 1, '*': 2, '/': 2}
+    output = []
+    operator_stack = []
+    for token in expression.split():
+        if token.isdigit():
+            output.append(token)
+        elif token == '(':
+            operator_stack.append(token)
+        elif token == ')':
+            while operator_stack and operator_stack[-1] != '(':
+                output.append(operator_stack.pop())
+            operator_stack.pop()
+        else:
+            while operator_stack and precedence.get(token, 0) <= precedence.get(operator_stack[-1], 0):
+                output.append(operator_stack.pop())
+            operator_stack.append(token)
+    while operator_stack:
+        output.append(operator_stack.pop())
+    return ' '.join(output)
+
+
+# Main program starts here
+temp_count = 0
+infix_expression = "3 + 4 * ( 2 - 1 )"
+postfix_expression = infix_to_postfix(infix_expression)
+lines = generate_code(postfix_expression)
+root = construct_tree(lines)
+print_tree(root)
+
+
+############################################################################
+
+#2)Write a program to associate three address code of arithmetic expression (integer data types and mixed data types) with each node in the parse tree.
+
+#Intermediate code generation
+
+precedence={'+':1,'-':1, '*':2, "/":2}
+operators=list(precedence.keys())
+
+class Node:
+  def __init__(self,value=None,left=None,right=None,codeid=None, code_label=None, code=None, mode=None,next=None):
+    self.value=value
+    self.left=left
+    self.right=right
+    self.codeid=codeid
+    self.code_label=code_label
+    self.code=code
+    self.mode=mode
+    self.next=next
+
+class Stack:
+  def __init__(self):
+    self.top=None
+
+  def push(self,new_node):
+    if(not self.top):
+      self.top=new_node
+
+    else:
+      new_node.next=self.top
+      self.top=new_node
+
+  def pop(self):
+    if(not self.top):
+      print("Stack is empty!")
+
+    else:
+      popped=self.top
+      self.top=self.top.next
+      return popped
+
+class Tree:
+  def inorder(self,p):
+    if(not p):
+      return
+
+    self.inorder(p.left)
+    if(p.value in operators):
+      print(p.value, end="\t")
+      print(p.code)
+    else:
+      print(p.value)
+
+    self.inorder(p.right)
+
+
+  def postorder(self,p):
+    if(not p):
+      return
+
+    self.postorder(p.left)
+    self.postorder(p.right)
+    if(p.value in operators):
+      print(p.value, end="\t")
+      print(p.code)
+      print("mode:",p.mode)
+      print("\n")
+    else:
+      print(p.value)
+      print("mode:",p.mode)
+      print("\n")
+
+input="( 1 / ( 2.5 + ( 3 * 9.0 ) ) )"
+expr=input.split()
+print(expr)
+
+
+#infix to postfix
+stack=[]
+postfix=[]
+
+for i in range(len(expr)):
+  if(expr[i]=='('):
+    stack.append('(')
+
+  elif(expr[i] not in operators and expr[i]!=')'):
+    postfix.append(expr[i])
+
+  elif(expr[i] in operators and stack[-1]=='('):
+    stack.append(expr[i])
+
+  elif(expr[i] in operators and stack[-1] in operators):
+    if(precedence[expr[i]] > precedence[stack[-1]]):
+      stack.append(expr[i])
+
+    else:
+      while(len(stack) and stack[-1]!='(' and stack[-1]!=')' and precedence[expr[i]]<=precedence[stack[-1]]):
+        postfix+=(stack.pop())
+
+      stack.append(expr[i])
+
+  elif(expr[i]==')'):
+    if(len(stack)!=0):
+      while(True):
+        elt=stack.pop()
+
+        if(elt=='('):
+          break
+        postfix+=(elt)
+
+
+print(postfix)
+
+#tree construction
+
+tree_stack=Stack()
+syntax_tree=Tree()
+
+
+code_id=-1
+
+for c in postfix:
+  if(c in operators):
+    new_node=Node()
+    new_node.value=c
+    op2=tree_stack.pop()
+    op1=tree_stack.pop()
+    new_node.codeid=code_id+1
+    new_node.code_label="T"+str(new_node.codeid)
+    new_node.code=new_node.code_label+" = " + op1.code_label + " " +  c + " " + op2.code_label
+
+    if(op1.mode=="real" or op2.mode=="real"):
+      new_node.mode="real"
+
+    elif(op1.mode=="int" and op2.mode=="int"):
+      new_node.mode="int"
+
+
+    new_node.left=op1
+    new_node.right=op2
+    tree_stack.push(new_node)
+    code_id=code_id+1
+
+  else:
+    new_node=Node()
+    new_node.value=c
+    if('.' in c):
+      new_node.mode="real"
+    else:
+      new_node.mode="int"
+    new_node.codeid=-1
+    new_node.code_label=c
+    new_node.code=""
+    tree_stack.push(new_node)
+
+root=tree_stack.pop()
+
+print("\n\n\n")
+
+
+print("POSTORDER TRAVERSAL OF THE SYNTAX TREE \n")
+syntax_tree.postorder(root)
+
+
+##################################################################################3
+
+#1)Write a program to associate three address code of Boolean expressions (involving relational operators, “and”, ”or” and not) with each node in the parse tree.
+
+class Node:
+  def __init__(self, data):
+        self.data = data
+        self.left = None
+        self.right = None
+        self.val = None
+next=0
+logic=['&&','||','!']
+relop=['<','>','<=','>=','==','!=']
+inp=input("Enter the String : ")
+inp = [i for i in inp.split()]
+print(inp)
+print("\n")
+st=[]
+while True:
+
+  if inp[0] >='a' and inp[0]<='z':
+    if inp[1] in relop and inp[2] >='a' and inp[2]<='z':
+      root=Node('E')
+      root.val=str(inp[0]+inp[1]+inp[2])
+      print('if ',inp[0],inp[1],inp[2],'goto',next+3)
+      print('E = 0')
+      print('goto',next+2)
+      print('E = 1')
+      next+=4
+      inp=inp[3:]
+      st.append(root)
+
+  elif inp[0] in logic:
+    st.append(inp[0])
+    inp=inp[1:]
+
+  if len(st)==3:
+    root=Node(st[1])
+    root.left=st[0]
+    root.right=st[2]
+    root.val=str(st[0].data+root.data+st[2].data)
+    print('E = ',st[0].data,root.data,st[2].data)
+    st=[root]
+
+  if len(inp)==0:
+    break
+
+
+
+def inorder(root):
+  if root==None:
+    return
+  inorder(root.left)
+  print("---------------------")
+  print("Value : ",root.data)
+  print("left : ",root.val)
+  print("---------------------\n")
+  inorder(root.right)
+inorder(root)
+
+
+#a > b && c >=b
+
+
+##################################################################################
+
+#2)Write a program to associate three address code of Boolean expressions (involving relational operators, “and”, ”or” and not) with each node in the parse tree.
+
+
+from collections import defaultdict
+
+binary_operator=["+","-","/","*","and","or",">","<","==","<=",">=","!="]
+unary_operator=["not"]
+precen={"or":1,"and":2,"==":3,"!=":3,">":4,"<":4,">=":4,"<=":4,"+":5,"-":5,"/":6,"*":6,"not":7}
+
+class Node:
+  def __init__(self,value=None,right=None,left=None,codeid=None,code=None,codelabel=None,next=None):
+    self.value=value
+    self.right=right
+    self.left=left
+    self.codeid=codeid
+    self.code=code
+    self.codelabel=codelabel
+    self.next=next
+
+
+class Stack:
+  def __init__(self):
+    self.top=None
+
+  def push(self,node):
+    if not self.top:
+      self.top=node
+
+    else:
+      node.next=self.top
+      self.top=node
+
+  def pop(self):
+    pop_node=self.top
+    self.top=self.top.next
+    return pop_node
+
+
+class Syntax_tree:
+
+  def inorder(self,root):
+    if not root:
+        return
+
+    self.inorder(root.left)
+    if root.value in binary_operator or root.value in unary_operator:
+      print(root.value,end="\t")
+      print(root.code,"\n")
+      
+    else:
+      print(root.value,"\n")
+    
+    self.inorder(root.right)
+
+  def postorder(self,root):
+    if not root:
+        return
+
+    self.postorder(root.left)
+    self.postorder(root.right)
+    if root.value in binary_operator or root.value in unary_operator:
+      print(root.value,end="\t")
+      print(root.code,"\n")
+      
+    else:
+      print(root.value,"\n")
+    
+    
+
+def to_postfix(expression):
+  stack=[]
+  postfix=[]
+  for i in expression:
+    if i=="(":
+      stack.append(i)
+    elif i in binary_operator or i in unary_operator:
+      while len(stack) and stack[-1] != "(" and stack[-1] != ")" and precen[stack[-1]]>=precen[i]:
+        postfix.append(stack.pop())
+      stack.append(i)
+    elif i.isalpha():
+      postfix.append(i)
+    elif i==")":
+      while len(stack):
+        if stack[-1]=="(":
+          stack.pop()
+          break
+        postfix.append(stack.pop())
+
+  return postfix
+
+
+def calculate_syntax(expression):
+    syntax_tree=Syntax_tree()
+    stack_list=Stack()
+
+    id=-1
+    for i in expression:
+      if i in binary_operator:
+        new_node=Node()
+
+        op2=stack_list.pop()
+        op1=stack_list.pop()
+
+        new_node.value=i
+        new_node.left=op1
+        new_node.right=op2
+        new_node.codeid=id+1
+        new_node.codelabel="T"+str(new_node.codeid)
+        new_node.code=new_node.codelabel+" = "+op1.codelabel+" "+i+" "+op2.codelabel
+
+        stack_list.push(new_node)
+        id+=1
+      
+      elif i in unary_operator:
+        new_node=Node()
+
+        op=stack_list.pop()
+
+        new_node.value=i
+        new_node.left=op
+        new_node.codeid=id+1
+        new_node.codelabel="T"+str(new_node.codeid)
+        new_node.code=new_node.codelabel+" = "+i+" "+op.codelabel
+        stack_list.push(new_node)
+        id+=1
+
+      else:
+        new_node=Node()
+
+        new_node.value=i
+        new_node.codeid=-1
+        new_node.codelabel=i
+        new_node.code=""
+
+        stack_list.push(new_node)
+      
+    root = stack_list.pop()
+    print("postorder traversal")
+    syntax_tree.postorder(root)
+
+input_string="( x < y and y >= z or x == z and not w )"
+input_list=input_string.split()
+print("Given string")
+print(input_string)
+postfix=to_postfix(input_list)
+print("Postfix")
+print(postfix)
+calculate_syntax(postfix)
+
+##################################################################################
